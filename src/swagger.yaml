@@ -1,0 +1,70 @@
+swagger: '2.0'
+info:
+  description: |
+    Some integration guidelines -
+    
+    - **Unsupported HTTP methods** -
+    For all HTTP methods which are not described in the paths below, 405 (Method Not Allowed) response should be returned.
+
+  version: '1'
+  title: 'Project name'
+schemes:
+  - 'http'
+consumes:
+  - application/json; charset=utf-8
+produces:
+  - application/json; charset=utf-8
+
+paths:
+  /some-path:
+    get:
+     summary: GET
+      description: Some example
+      tags:
+        - example
+      responses:
+        200:
+          description: Ok
+          schema:
+            $ref: '#/definitions/Example'
+        400:
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ErrorModel'
+        404:
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ErrorModel'
+        500:
+          description: Internal Error
+          schema:
+            $ref: '#/definitions/ErrorModel'
+
+definitions:
+  ErrorModel:
+    type: object
+    description: 'The error returned by the service.'
+    required:
+      - details
+    properties:
+      details:
+        description: 'Error message for the developer.'
+        type: array
+        items:
+          type: string
+      more_info:
+        type: string
+        description: 'More info about the error, can include link to the documentation.'
+  Example:
+      type: object
+      properties:
+        status:
+          description: 'Some example'
+          type: string
+parameters:
+  ApiRequestId:
+    name: 'x-zooz-request-id'
+    in: header
+    description: 'Zooz global request id through the system.'
+    type: string
+    required: true

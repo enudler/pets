@@ -1,0 +1,4 @@
+docker pull $1
+TAGGED_IMAGE_NAME=$CI_REGISTRY_IMAGE/tags:$2
+docker tag $1 $TAGGED_IMAGE_NAME
+docker push $TAGGED_IMAGE_NAME

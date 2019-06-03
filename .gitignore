@@ -1,0 +1,10 @@
+.env
+node_modules/*
+.idea/
+.DS_Store
+.vscode
+coverage
+mochawesome-report/
+npm-debug.log
+.history
+src/cassandra-handler/cassandra_config.json

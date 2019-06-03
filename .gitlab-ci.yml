@@ -1,0 +1,302 @@
+image: docker-registry.zooz.co:4567/cd/ci-runners/runners:node_8_python_2.7
+
+stages:
+  - init
+  - unit-tests
+  - build
+  - deploy-dev
+  - integration-tests
+  - deploy-qa
+  - system-tests
+  - deploy-mars
+  - deploy-prd
+  - release
+
+services:
+  - docker:dind
+  
+variables:
+  DOCKER_DRIVER: overlay2
+
+before_script:
+  - export PATH=$PATH:config:scripts; source loadEnv.sh
+
+# -------------- Init -------------- #
+cache-modules:
+  tags:
+    - dcos-multi-runner
+  stage: init
+  script:
+    - npm install
+  artifacts:
+    when: on_success
+    expire_in: 1 day
+    paths:
+      - node_modules/
+      - package-lock.json
+  except:
+    - tags
+
+# ------- Build ------- #
+build:app:
+  tags:
+    - dcos-multi-runner
+  stage: build
+  script:
+    - echo $CI_BUILD_TOKEN | docker login -u gitlab-ci-token --password-stdin $CI_REGISTRY
+    - docker build -t $APP_IMAGE .
+    - docker push $APP_IMAGE
+  except:
+    - tags
+
+# ------- Tests ------- #
+.test_template: &test_definition
+  tags:
+    - dcos-multi-runner
+  before_script:
+    - export PATH=$PATH:config:scripts; source loadEnv.sh
+    - npm-install.sh
+  artifacts:
+    when: always
+    name: $CI_JOB_STAGE-$CI_JOB_NAME-$CI_PIPELINE_ID
+    expire_in: 3 days
+    paths:
+      - coverage/
+      - logs/
+  except:
+    - tags
+
+# -------------- Unit tests -------------- #
+test:unit:
+  <<: *test_definition
+  stage: unit-tests
+  variables:
+      CLUSTER: dev
+      ENVIRONMENT: sandbox
+  script:
+    - npm-install.sh
+    - npm test
+
+test:vulnerabilities:
+  <<: *test_definition
+  stage: unit-tests
+  script:
+    - npm audit
+
+test:lint:
+  <<: *test_definition
+  stage: unit-tests
+  script:
+    - npm-install.sh
+    - npm run lint
+
+
+
+# -------------- Integration tests dev -------------- #
+test:integration:
+  <<: *test_definition
+  stage: integration-tests
+  variables:
+    CLUSTER: dev
+    ENVIRONMENT: sandbox
+  script:
+    - npm run test:integration
+  only:
+    - master
+    - branches
+  except:
+    - tags
+
+# -------------- System tests qa -------------- #
+test:system:qa:
+  <<: *test_definition
+  stage: system-tests
+  variables:
+    CLUSTER: qa
+    ENVIRONMENT: sandbox
+  script:
+    - npm run test:system
+  only:
+    - branches
+    - master
+    - triggers
+
+# -------------- Deployments -------------- #
+.deploy_template: &deploy_definition
+  dependencies: []
+  script:
+    - marathon --deploy --health
+  artifacts:
+    when: always
+    name: $CI_JOB_STAGE-$CI_JOB_NAME-$CI_PIPELINE_ID
+    expire_in: 3 days
+    paths:
+      - logs/
+
+deploy:dev:review:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner
+  stage: deploy-dev
+  variables:
+    ENVIRONMENT: sandbox
+  environment:
+    name: review/dev/$CI_COMMIT_REF_NAME
+    on_stop: deploy:dev:review:stop
+  only:
+    - branches
+  except:
+    - master
+    - tags
+
+deploy:dev:review:stop:
+  tags:
+    - dcos-multi-runner
+  stage: deploy-dev
+  environment:
+    name: review/dev/$CI_COMMIT_REF_NAME
+    action: stop
+  before_script:
+    - export PATH=$PATH:config:scripts; source loadEnv.sh
+    - npm-install.sh
+  script:
+    - marathon --destroy
+  only:
+    - branches
+  except:
+    - master
+    - tags
+  when: manual
+  
+deploy:dev:sandbox:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner
+  stage: deploy-dev
+  variables:
+    ENVIRONMENT: sandbox
+  environment: dev
+  only:
+    - master
+
+deploy:dev:live:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner
+  stage: deploy-dev
+  variables:
+    ENVIRONMENT: live
+  environment: dev
+  only:
+    - master
+
+deploy:qa:sandbox:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-qa
+  stage: deploy-qa
+  variables:
+    ENVIRONMENT: sandbox
+  environment: qa
+  only:
+    - branches
+    - master
+
+deploy:qa:live:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-qa
+  stage: deploy-qa
+  variables:
+    ENVIRONMENT: live
+  environment: qa
+  only:
+    - master
+
+deploy:mars:sandbox:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-mars
+  stage: deploy-mars
+  variables:
+    ENVIRONMENT: sandbox
+  environment: mars
+  only:
+    - master
+    - tags
+
+deploy:mars:live:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-mars
+  stage: deploy-mars
+  variables:
+    ENVIRONMENT: live
+  environment: mars
+  only:
+    - master
+    - tags
+
+deploy:prod:sandbox:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-prd
+  stage: deploy-prd
+  variables:
+    ENVIRONMENT: sandbox
+  environment: prd
+  only:
+    - tags
+  when: manual
+
+deploy:prod:live:
+  <<: *deploy_definition
+  tags:
+    - dcos-multi-runner-prd
+  stage: deploy-prd
+  variables:
+    ENVIRONMENT: live
+  environment: prd
+  only:
+    - tags
+  when: manual
+
+# -------------- Release -------------- #
+.release_template: &release_definition
+  tags:
+    - dcos-multi-runner
+  stage: release
+  dependencies: []
+  script:
+    # Setup ssh inside the runner
+    - git config --global user.email $GIT_EMAIL
+    - git config --global user.name $GIT_USER
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    # Clone the source code
+    - GIT_URL=$(echo $CI_PROJECT_URL | cut -d'/' -f3)
+    - git clone git@$GIT_URL:$CI_PROJECT_PATH.git
+    - cd $CI_PROJECT_NAME
+    - git reset --hard $CI_BUILD_REF
+    - release.sh
+  only:
+    - master
+  when: manual
+
+release:patch:
+  <<: *release_definition
+  variables:
+    RELEASE_TYPE: patch
+
+release:minor:
+  <<: *release_definition
+  variables:
+    RELEASE_TYPE: minor
+
+release:major:
+  <<: *release_definition
+  variables:
+    RELEASE_TYPE: major
