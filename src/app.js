@@ -8,7 +8,7 @@ const { init } = require('./initialization/init');
 const products = require('./service/petsProducts');
 const orders = require('./service/orders');
 
-let tokenId = uuid();
+let tokenId = 'd62c3cd2-e8d0-4299-901f-cadce0f77529';
 module.exports = async () => {
     await init();
 
@@ -26,6 +26,10 @@ module.exports = async () => {
     app.post('/orders', (req, res) => {
         let randomOrder = orders.orders[getRandomInt(orders.orders.length - 1)].order_id;
         return res.status(201).json({ order_id: randomOrder });
+    });
+
+    app.get('/orders', (req, res) => {
+        return res.status(200).json(orders);
     });
 
     app.get('/orders/:id', (req, res) => {
