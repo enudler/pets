@@ -24,8 +24,12 @@ module.exports = async () => {
         return res.status(200).json(products);
     });
     app.post('/orders', (req, res) => {
-        let randomOrder = orders.orders[getRandomInt(orders.orders.length - 1)].order_id;
-        return res.status(201).json({ order_id: randomOrder });
+        if (req.headers['response-status'] === '500') {
+            return res.status(500).json({ error: 'Internal error' });
+        }  else {
+            let randomOrder = orders.orders[getRandomInt(orders.orders.length - 1)].order_id;
+            return res.status(201).json({ order_id: randomOrder });
+        }
     });
 
     app.get('/orders', (req, res) => {
